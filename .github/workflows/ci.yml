@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RISCV_TARGET: riscv64gc-unknown-none-elf
+
+jobs:
+  build:
+    name: Build & Test (QEMU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ env.RISCV_TARGET }}
+          components: rust-src
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-misc
+
+      - name: Build (release)
+        run: |
+          cargo build --target ${{ env.RISCV_TARGET }} --release
+
+      - name: Check binary size
+        run: |
+          # Check actual loadable content (.text + .rodata), not ELF file size
+          # ELF files have headers and alignment padding that inflate the file size
+          # readelf -SW columns: [Nr] Name Type Addr Offset Size EntSize Flags ...
+          # $7 is the Size column (not $6 which is Offset)
+          TEXT_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/riscv-trust | grep "\.text" | awk '{print strtonum("0x"$7)}')
+          RODATA_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/riscv-trust | grep "\.rodata" | awk '{print strtonum("0x"$7)}')
+          CODE_SIZE=$((TEXT_SIZE + RODATA_SIZE))
+          echo "Code: .text=${TEXT_SIZE} .rodata=${RODATA_SIZE} total=${CODE_SIZE} bytes"
+          # Assert code is under 64 KiB
+          if [ "$CODE_SIZE" -gt 65536 ]; then
+            echo "ERROR: Code too large ($CODE_SIZE bytes > 64 KiB)"
+            exit 1
+          fi
+          echo "✓ Binary size OK (${CODE_SIZE} bytes < 64 KiB)"
+
+      - name: Run in QEMU
+        timeout-minutes: 2
+        run: |
+          # Run the binary in QEMU and capture output.
+          # Timeout after 10 seconds to prevent hanging.
+          timeout 10 qemu-system-riscv64 \
+            -machine virt \
+            -bios default \
+            -nographic \
+            -kernel target/${{ env.RISCV_TARGET }}/release/riscv-trust \
+            2>&1 | tee qemu-output.txt
+
+          # Verify key output strings.
+          echo "--- Checking output ---"
+          grep -q "riscv-trust" qemu-output.txt
+          grep -q "CHAIN OF TRUST" qemu-output.txt
+          grep -q "PASSED" qemu-output.txt
+          grep -q "ML-KEM-768" qemu-output.txt
+          grep -q "SHA-256" qemu-output.txt
+          grep -q "no_std" qemu-output.txt
+          grep -q "FIPS 203" qemu-output.txt
+          echo "--- All checks passed ---"
+
+      - name: Clippy (target)
+        run: |
+          cargo clippy --target ${{ env.RISCV_TARGET }} --release -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt -- --check
