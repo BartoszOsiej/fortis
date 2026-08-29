@@ -4,6 +4,8 @@
 //!
 //! Output: src/keys.rs (constants for bare-metal firmware)
 
+#![allow(clippy::unwrap_used, clippy::expect_used)] // host-side tool, not firmware
+
 use ml_kem::kem::{Decapsulate, KeyExport};
 use ml_kem::{array::Array, DecapsulationKey, MlKem768};
 

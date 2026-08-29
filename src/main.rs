@@ -25,6 +25,9 @@
 
 #![no_std]
 #![no_main]
+#![deny(warnings)]
+#![allow(clippy::panic)] // panic handler required for no_std
+#![allow(clippy::unwrap_used)] // hex encoding + fixed-size arrays are infallible
 
 mod keys;
 mod uart;

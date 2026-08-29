@@ -25,9 +25,9 @@ jobs:
           cargo fmt --manifest-path scripts/keygen/Cargo.toml -- --check
           cargo fmt --manifest-path scripts/verify/Cargo.toml -- --check
 
-  # ── Lint: clippy for all crates (parallel with build) ──────────────
+  # ── Lint: clippy + audit + no placeholders ─────────────────────────
   lint:
-    name: Clippy
+    name: Lint & Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,16 +42,53 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: clippy-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: clippy-${{ runner.os }}-
-      - name: Clippy (firmware)
-        run: cargo clippy --target ${{ env.RISCV_TARGET }} --release -- -D warnings
-      - name: Clippy (keygen)
-        run: cargo clippy --manifest-path scripts/keygen/Cargo.toml --release -- -D warnings
-      - name: Clippy (verifier)
-        run: cargo clippy --manifest-path scripts/verify/Cargo.toml --release -- -D warnings
+          key: lint-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: lint-${{ runner.os }}-
+      - name: Clippy (firmware) — strict
+        run: |
+          cargo clippy --target ${{ env.RISCV_TARGET }} --release -- \
+            -D warnings \
+            -D clippy::all \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -D clippy::todo
+      - name: Clippy (keygen) — strict
+        run: |
+          cargo clippy --manifest-path scripts/keygen/Cargo.toml --release -- \
+            -D warnings \
+            -D clippy::all \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -D clippy::todo
+      - name: Clippy (verifier) — strict
+        run: |
+          cargo clippy --manifest-path scripts/verify/Cargo.toml --release -- \
+            -D warnings \
+            -D clippy::all \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -D clippy::todo
+      - name: No TODO/FIXME/HACK/XXX in source
+        run: |
+          echo "Checking for placeholder comments..."
+          if grep -rn "TODO\|FIXME\|HACK\|XXX\|PLACEHOLDER" src/ scripts/ --include="*.rs" --include="*.toml"; then
+            echo "ERROR: Found placeholder comments in source"
+            exit 1
+          fi
+          echo "✓ No placeholder comments"
+      - name: Cargo audit (security vulnerabilities)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+      - name: Check deny(warnings) in firmware
+        run: |
+          grep -q '#!\[deny(warnings)\]' src/main.rs || {
+            echo "ERROR: src/main.rs missing #![deny(warnings)]"
+            exit 1
+          }
+          echo "✓ #![deny(warnings)] present"
 
-  # ── Build: firmware + size check (parallel with lint/fmt) ──────────
+  # ── Build: firmware + size check (parallel with lint) ──────────────
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -83,6 +120,20 @@ jobs:
             exit 1
           fi
           echo "✓ Binary size OK (${CODE_SIZE} bytes < 64 KiB)"
+      - name: Check no_std in firmware
+        run: |
+          grep -q '#!\[no_std\]' src/main.rs || {
+            echo "ERROR: src/main.rs missing #![no_std]"
+            exit 1
+          }
+          echo "✓ #![no_std] present"
+      - name: Check panic = abort in release profile
+        run: |
+          grep -q 'panic = "abort"' Cargo.toml || {
+            echo "ERROR: Cargo.toml missing panic = abort in release profile"
+            exit 1
+          }
+          echo "✓ panic = abort"
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:

@@ -7,6 +7,8 @@
 //!   LCR     (offset 3) — line control (DLAB bit)
 //!   LSR     (offset 5) — line status
 
+#![allow(clippy::unwrap_used)] // UART write_fmt is infallible in bare-metal
+
 use core::fmt;
 
 /// QEMU virt UART base address (ns16550a).

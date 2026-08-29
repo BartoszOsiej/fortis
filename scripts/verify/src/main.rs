@@ -5,6 +5,8 @@
 //!
 //! Usage: cargo run --release -- path/to/fortis.elf
 
+#![allow(clippy::unwrap_used, clippy::expect_used)] // host-side tool, not firmware
+
 use ml_kem::kem::Decapsulate;
 use ml_kem::{array::Array, DecapsulationKey, MlKem768};
 use object::{Object, ObjectSection};
