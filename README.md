@@ -10,9 +10,29 @@ SHA-256 and ML-KEM-768 post-quantum crypto on QEMU virt.
 | SHA-256 | `sha2` crate (FIPS 180-4) — real SHA-256, not a placeholder |
 | ML-KEM-768 | `ml-kem` crate (FIPS 203) — post-quantum key encapsulation |
 | MMIO UART | ns16550a driver for QEMU virt (`0x10000000`) |
-| Measured boot | SHA-256 PCR registers (extend + verify each stage) |
+| Measured boot | SHA-256 PCR registers over **real binary sections** |
 | Chain of trust | 3-stage measurement with attestation report |
 | Binary size | Under 64 KiB code (stripped, LTO, `opt-level=z`) |
+| Section proofs | Prints real linker addresses + sizes for `.text` and `.rodata` |
+| Host verification | External verifier reads ELF, computes expected PCR, compares |
+
+## How it works
+
+1. **Firmware** runs in QEMU, measures its own `.text` and `.rodata` sections
+   using linker-defined addresses, prints PCR values.
+2. **Verifier** (`scripts/verify/`) reads the ELF binary independently,
+   computes expected PCR values from the actual section bytes, runs the
+   firmware in QEMU, parses the output, and compares.
+3. **External root of trust**: the verifier is the trust anchor — it doesn't
+   need to trust the firmware's self-report.
+
+## Limitations
+
+| Limitation | Detail |
+|------------|--------|
+| **Simulated TPM** | PCR registers are `[u8; 32]` in RAM, not hardware TPM registers. The verifier acts as external root of trust. A production system would use a real TPM chip (PCR 16-23 for application use). |
+| **No secure boot** | QEMU loads the binary directly from `-kernel`. There is no hardware root of trust, no signature verification, and no firmware signing. |
+| **Key rotation** | Keys are generated with real OS randomness via `scripts/keygen`, but re-rotation requires re-running the keygen tool manually. |
 
 ## Why `no_std`
 
@@ -24,9 +44,6 @@ heap allocator:
 - **Full memory control** — linker script, BSS clearing, stack layout
 - **Consistent with the ecosystem** — eBPF (talus) also uses `no_std`
 
-The `no_std` attribute is not a limitation here — it's the correct choice
-for firmware that must be small, fast, and verifiable.
-
 ## Architecture
 
 ```
@@ -37,12 +54,12 @@ for firmware that must be small, fast, and verifiable.
 │   • Clear BSS section                               │
 │   • Jump to rust_main()                              │
 ├─────────────────────────────────────────────────────┤
-│ Stage 1: Boot stub measurement                      │
-│   • SHA-256(zeros || stub) → PCR[0]                 │
-│   • Verify integrity before proceeding               │
+│ Stage 1: Measure .text (real machine code)          │
+│   • SHA-256(_text_start.._text_end) → PCR[0]       │
+│   • Prints real address + size from linker          │
 ├─────────────────────────────────────────────────────┤
-│ Stage 2: Firmware payload measurement                │
-│   • SHA-256(PCR[0] || payload) → PCR[1]            │
+│ Stage 2: Measure .rodata (real const data)          │
+│   • SHA-256(PCR[0] || _rodata) → PCR[1]            │
 │   • Chained measurement (PCR[0] feeds into PCR[1])  │
 ├─────────────────────────────────────────────────────┤
 │ Stage 3: ML-KEM-768 post-quantum verification       │
@@ -56,12 +73,26 @@ for firmware that must be small, fast, and verifiable.
 └─────────────────────────────────────────────────────┘
 ```
 
+### Verification flow
+
+```
+Build firmware
+    ↓
+scripts/verify/
+    ├─ 1. Read ELF → extract .text, .rodata bytes (by section name)
+    ├─ 2. Compute SHA-256 chain → expected PCR[0], PCR[1]
+    ├─ 3. ML-KEM-768 decapsulate (deterministic from keys.rs) → PCR[2]
+    ├─ 4. Run firmware in QEMU → parse "PCR[i] = 0x..." output
+    ├─ 5. Compare host-computed vs firmware-printed
+    └─ 6. PASSED or FAILED
+```
+
 ## Crypto details
 
 ### SHA-256 (FIPS 180-4)
 
 ```rust
-// PCR extend: PCR = SHA-256(PCR_old || new_data)
+// PCR extend: PCR = SHA-256(PCR_old || data)
 let mut hasher = Sha256::new();
 hasher.update(pcr);
 hasher.update(data);
@@ -71,23 +102,21 @@ pcr.copy_from_slice(&hasher.finalize());
 ### ML-KEM-768 (FIPS 203)
 
 ```rust
-// Pre-generated keypair (from keygen tool)
+// Deterministic key derivation from seed
 let dk = DecapsulationKey::<MlKem768>::from_seed(seed);
 let ct = Array::try_from(CT.as_slice()).unwrap();
 
-// Decapsulate ciphertext → shared secret
+// Decapsulate ciphertext → shared secret (deterministic)
 let ss = dk.decapsulate(&ct);
-// ss is the 32-byte shared secret
 ```
 
-The keypair and ciphertext are pre-generated using a deterministic keygen
-tool (runs on host with OS randomness), then embedded as constants in the
-bare-metal firmware.
+Keypair and ciphertext are generated on the host using real OS randomness
+(`getrandom` crate) via `scripts/keygen/`.
 
 ## Connections to the portfolio
 
 ```
-pqguard (post-quantum crypto)  ←→  riscv-trust (firmware verification)
+pqguard (post-quantum crypto)  ←→  Fortis (firmware verification)
         ↓                                    ↓
    ML-KEM-768                         Chain of trust
         ↓                                    ↓
@@ -107,96 +136,79 @@ rustup component add rust-src
 sudo apt install qemu-system-misc
 ```
 
-### Build
+### Build & verify
 
 ```bash
+# Build firmware
 cargo build --target riscv64gc-unknown-none-elf --release
+
+# Run host-side verifier (reads ELF, runs QEMU, compares)
+cargo run --manifest-path scripts/verify/Cargo.toml --release
 ```
 
-### Run in QEMU
+### Run in QEMU manually
 
 ```bash
 qemu-system-riscv64 \
     -machine virt \
     -bios default \
     -nographic \
-    -kernel target/riscv64gc-unknown-none-elf/release/riscv-trust
+    -kernel target/riscv64gc-unknown-none-elf/release/fortis
 ```
 
-### Expected output
+### Verifier output
 
 ```
-========================================
-  riscv-trust -- Bare-Metal Chain of Trust
-  RISC-V 64 -- QEMU virt -- no_std
-========================================
+=== Fortis Verifier ===
+ELF: target/riscv64gc-unknown-none-elf/release/fortis
 
-[stage 0] UART: ns16550a @ 0x10000000
-          crypto: SHA-256 (FIPS 180-4) + ML-KEM-768 (FIPS 203)
+ELF sections:
+  .text:   addr=0x80200000  size=44878
+  .rodata: addr=0x8020b000  size=7456
 
-[stage 1] Measuring boot stub (SHA-256)...
-          PCR[0] = 0x<a3b4c5d6...>
-          [OK] stage 0 verified
+Expected PCR values (host-computed):
+  PCR[0] = 0xd146f17d84c41e3c8fb888acecb534d8...
+  PCR[1] = 0xb3dcab5d6e0b885687e09cb1d5bd1886...
+  PCR[2] = 0x230fa3d24255c839356e2dc5b34772fa...
 
-[stage 2] Measuring firmware payload (SHA-256)...
-          PCR[1] = 0x<f7e8d9c0...>
-          [OK] stage 1 verified
+Running firmware in QEMU...
+Firmware PCR values (from QEMU):
+  PCR[0] = 0xd146f17d84c41e3c8fb888acecb534d8...
+  PCR[1] = 0xb3dcab5d6e0b885687e09cb1d5bd1886...
+  PCR[2] = 0x230fa3d24255c839356e2dc5b34772fa...
 
-[stage 3] Post-quantum verification (ML-KEM-768)
-          algo  = ML-KEM-768 (FIPS 203)
-          dk    = 64 bytes (seed-based)
-          ek    = 1184 bytes (encapsulation key)
-          ct    = 1088 bytes (ciphertext)
-          [OK] ML-KEM-768 shared secret decapsulated correctly
-          SS = 0x<1234567890abcdef...>
-          PCR[2] = 0x<abcdef1234567890...>
+Verification:
+  PCR[0] ✓ match
+  PCR[1] ✓ match
+  PCR[2] ✓ match
 
-[stage 4] Attestation report
-          ┌──────────────────────────────────────────────┐
-          │ PCR Bank (measurement registers):            │
-          │   PCR[0] = 0x...  │
-          │   PCR[1] = 0x...  │
-          │   PCR[2] = 0x...  │
-          │ Stages verified: 3/3                        │
-          │ Crypto: SHA-256 + ML-KEM-768                 │
-          │ Platform: RISC-V 64 · QEMU virt · no_std    │
-          └──────────────────────────────────────────────┘
-
-================================================
-  CHAIN OF TRUST: PASSED (3/3 stages)
-================================================
-
-Stack: no_std, no heap, bare-metal RISC-V 64
-Crypto: SHA-256 (FIPS 180-4) + ML-KEM-768 (FIPS 203)
-Links:  pqguard (crypto) <-> talus (eBPF)
-
-[done] halted.
+=== VERIFICATION: PASSED ===
 ```
 
 ## Project structure
 
 ```
-riscv-trust/
+fortis/
 ├── src/
-│   ├── main.rs          # Entry point + chain of trust demo
+│   ├── main.rs          # Entry point + chain of trust (measures real sections)
 │   ├── uart.rs          # MMIO UART driver (ns16550a)
-│   └── keys.rs          # Pre-generated ML-KEM-768 keypair + ciphertext
+│   └── keys.rs          # ML-KEM-768 keypair (generated by scripts/keygen)
 ├── link.ld              # Linker script (QEMU virt, 0x80200000)
 ├── build.rs             # Build script (linker flags)
 ├── Cargo.toml
+├── scripts/
+│   ├── keygen/          # Generate ML-KEM-768 keys with real randomness
+│   └── verify/          # Host-side verifier (reads ELF, runs QEMU, compares)
 ├── .github/workflows/
-│   └── ci.yml           # Build + QEMU test + size check + clippy
+│   └── ci.yml           # Build + verify + size check + clippy
 └── README.md
 ```
 
 ## Key generation
 
-The ML-KEM-768 keypair and ciphertext are generated on the host using
-a deterministic seed (no OS randomness needed at runtime):
-
 ```bash
-# This is a one-shot process — keys are embedded in keys.rs
-# The keygen tool uses ml-kem with hazmat feature for deterministic ops
+cd scripts/keygen && cargo run --release
+# Output: Rust source → paste into src/keys.rs
 ```
 
 ## License

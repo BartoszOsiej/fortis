@@ -48,28 +48,14 @@ jobs:
           fi
           echo "✓ Binary size OK (${CODE_SIZE} bytes < 64 KiB)"
 
-      - name: Run in QEMU
+      - name: Verify measurements (host-side)
         timeout-minutes: 2
         run: |
-          # Run the binary in QEMU and capture output.
-          # Timeout after 10 seconds to prevent hanging.
-          timeout 10 qemu-system-riscv64 \
-            -machine virt \
-            -bios default \
-            -nographic \
-            -kernel target/${{ env.RISCV_TARGET }}/release/fortis \
-            2>&1 | tee qemu-output.txt
-
-          # Verify key output strings.
-          echo "--- Checking output ---"
-          grep -q "riscv-trust" qemu-output.txt
-          grep -q "CHAIN OF TRUST" qemu-output.txt
-          grep -q "PASSED" qemu-output.txt
-          grep -q "ML-KEM-768" qemu-output.txt
-          grep -q "SHA-256" qemu-output.txt
-          grep -q "no_std" qemu-output.txt
-          grep -q "FIPS 203" qemu-output.txt
-          echo "--- All checks passed ---"
+          # Build the verifier (host-side)
+          cargo build --manifest-path scripts/verify/Cargo.toml --release
+          # Run verifier: reads ELF, computes expected PCR, runs QEMU, compares
+          cargo run --manifest-path scripts/verify/Cargo.toml --release \
+            -- target/${{ env.RISCV_TARGET }}/release/fortis
 
       - name: Clippy (target)
         run: |
