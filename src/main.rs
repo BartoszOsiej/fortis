@@ -131,12 +131,17 @@ pub extern "C" fn rust_main() -> ! {
     println!();
     println!("[stage 1] Measuring .text section (SHA-256)...");
     let text = unsafe { section_slice(&_text_start, &_text_end) };
-    println!("          addr   = 0x{:08x}", unsafe { &_text_start as *const _ as usize });
+    println!("          addr   = 0x{:08x}", unsafe {
+        &_text_start as *const _ as usize
+    });
     println!("          size   = {} bytes", text.len());
     pcr_extend(&mut pcr0, text);
     let mut hex = [0u8; 65];
     hex_fmt(&pcr0, &mut hex);
-    println!("          PCR[0] = 0x{}", core::str::from_utf8(&hex[..64]).unwrap());
+    println!(
+        "          PCR[0] = 0x{}",
+        core::str::from_utf8(&hex[..64]).unwrap()
+    );
     println!("          [OK] stage 0 verified");
     passed_count += 1;
 
@@ -144,13 +149,18 @@ pub extern "C" fn rust_main() -> ! {
     println!();
     println!("[stage 2] Measuring .rodata section (SHA-256)...");
     let rodata = unsafe { section_slice(&_rodata_start, &_rodata_end) };
-    println!("          addr   = 0x{:08x}", unsafe { &_rodata_start as *const _ as usize });
+    println!("          addr   = 0x{:08x}", unsafe {
+        &_rodata_start as *const _ as usize
+    });
     println!("          size   = {} bytes", rodata.len());
     // Chained: pcr1 = SHA-256(pcr0 || rodata)
     pcr1 = pcr0;
     pcr_extend(&mut pcr1, rodata);
     hex_fmt(&pcr1, &mut hex);
-    println!("          PCR[1] = 0x{}", core::str::from_utf8(&hex[..64]).unwrap());
+    println!(
+        "          PCR[1] = 0x{}",
+        core::str::from_utf8(&hex[..64]).unwrap()
+    );
     println!("          [OK] stage 1 verified");
     passed_count += 1;
 
@@ -159,7 +169,10 @@ pub extern "C" fn rust_main() -> ! {
     println!("[stage 3] Post-quantum verification (ML-KEM-768)");
     println!("          algo  = ML-KEM-768 (FIPS 203)");
     println!("          dk    = {} bytes (seed-based)", keys::DK.len());
-    println!("          ek    = {} bytes (encapsulation key)", keys::EK.len());
+    println!(
+        "          ek    = {} bytes (encapsulation key)",
+        keys::EK.len()
+    );
     println!("          ct    = {} bytes (ciphertext)", keys::CT.len());
 
     let seed = Array::try_from(keys::DK.as_slice()).unwrap();
@@ -171,7 +184,10 @@ pub extern "C" fn rust_main() -> ! {
     if ss_match {
         println!("          [OK] ML-KEM-768 shared secret decapsulated correctly");
         hex_fmt(ss_received.as_slice(), &mut hex);
-        println!("          SS = 0x{}", core::str::from_utf8(&hex[..64]).unwrap());
+        println!(
+            "          SS = 0x{}",
+            core::str::from_utf8(&hex[..64]).unwrap()
+        );
         passed_count += 1;
     } else {
         println!("          [FAIL] ML-KEM-768 shared secret MISMATCH");
@@ -180,7 +196,10 @@ pub extern "C" fn rust_main() -> ! {
     // Extend PCR[2] with the shared secret
     pcr_extend(&mut pcr2, ss_received.as_slice());
     hex_fmt(&pcr2, &mut hex);
-    println!("          PCR[2] = 0x{}", core::str::from_utf8(&hex[..64]).unwrap());
+    println!(
+        "          PCR[2] = 0x{}",
+        core::str::from_utf8(&hex[..64]).unwrap()
+    );
 
     // ── Stage 4: Attestation report ──────────────────────────────────
     println!();
@@ -190,9 +209,16 @@ pub extern "C" fn rust_main() -> ! {
     for (i, pcr) in [&pcr0, &pcr1, &pcr2].iter().enumerate() {
         let mut h = [0u8; 65];
         hex_fmt(*pcr, &mut h);
-        println!("          |   PCR[{}] = 0x{}  |", i, core::str::from_utf8(&h[..64]).unwrap());
+        println!(
+            "          |   PCR[{}] = 0x{}  |",
+            i,
+            core::str::from_utf8(&h[..64]).unwrap()
+        );
     }
-    println!("          | Stages verified: {}/{}                        |", passed_count, total_stages);
+    println!(
+        "          | Stages verified: {}/{}                        |",
+        passed_count, total_stages
+    );
     println!("          | Crypto: SHA-256 + ML-KEM-768                 |");
     println!("          | Platform: RISC-V 64 · QEMU virt · no_std    |");
     println!("          +----------------------------------------------+");
@@ -201,9 +227,15 @@ pub extern "C" fn rust_main() -> ! {
     println!();
     println!("================================================");
     if passed_count == total_stages {
-        println!("  CHAIN OF TRUST: PASSED ({}/{})", passed_count, total_stages);
+        println!(
+            "  CHAIN OF TRUST: PASSED ({}/{})",
+            passed_count, total_stages
+        );
     } else {
-        println!("  CHAIN OF TRUST: FAILED ({}/{})", passed_count, total_stages);
+        println!(
+            "  CHAIN OF TRUST: FAILED ({}/{})",
+            passed_count, total_stages
+        );
     }
     println!("================================================");
     println!();

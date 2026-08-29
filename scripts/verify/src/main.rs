@@ -15,17 +15,19 @@ use std::process::Command;
 fn main() {
     let elf_path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| {
-            "target/riscv64gc-unknown-none-elf/release/fortis".to_string()
-        });
+        .unwrap_or_else(|| "target/riscv64gc-unknown-none-elf/release/fortis".to_string());
 
     // Compute project root from ELF path (ELF is at target/<triple>/release/fortis)
     let elf_path_std = std::path::Path::new(&elf_path);
     let project_root = elf_path_std
-        .parent().unwrap()  // release/
-        .parent().unwrap()  // <triple>/
-        .parent().unwrap()  // target/
-        .parent().unwrap(); // project root
+        .parent()
+        .unwrap() // release/
+        .parent()
+        .unwrap() // <triple>/
+        .parent()
+        .unwrap() // target/
+        .parent()
+        .unwrap(); // project root
     let keys_path = project_root.join("src/keys.rs");
 
     println!("=== Fortis Verifier ===");
@@ -49,8 +51,16 @@ fn main() {
     let rodata_bytes = rodata_section.data().expect("Failed to read .rodata data");
 
     println!("ELF sections:");
-    println!("  .text:   addr=0x{:08x}  size={}", text_section.address(), text_bytes.len());
-    println!("  .rodata: addr=0x{:08x}  size={}", rodata_section.address(), rodata_bytes.len());
+    println!(
+        "  .text:   addr=0x{:08x}  size={}",
+        text_section.address(),
+        text_bytes.len()
+    );
+    println!(
+        "  .rodata: addr=0x{:08x}  size={}",
+        rodata_section.address(),
+        rodata_bytes.len()
+    );
     println!();
 
     // ── Step 2: Compute expected PCR values ─────────────────────────
@@ -182,7 +192,7 @@ fn parse_const_array(src: &str, name: &str, expected_len: usize) -> Vec<u8> {
     // Find the opening bracket of the array value (after the `= `)
     let eq_pos = src[start..].find("= [").unwrap() + start;
     let bracket_start = eq_pos + 2; // skip '= '
-    // Find the closing bracket
+                                    // Find the closing bracket
     let bracket_end = src[bracket_start..].find(']').unwrap() + bracket_start;
 
     let array_str = &src[bracket_start + 1..bracket_end];

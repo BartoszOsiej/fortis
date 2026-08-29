@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 env:
@@ -11,7 +11,7 @@ env:
 
 jobs:
   build:
-    name: Build & Test (QEMU)
+    name: Build & Verify (QEMU)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,53 +20,63 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ env.RISCV_TARGET }}
-          components: rust-src
+          components: rust-src, clippy, rustfmt
 
       - name: Install QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-misc
 
-      - name: Build (release)
+      - name: Cache cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            scripts/keygen/target
+            scripts/verify/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting (all crates)
+        run: |
+          cargo fmt -- --check
+          cargo fmt --manifest-path scripts/keygen/Cargo.toml -- --check
+          cargo fmt --manifest-path scripts/verify/Cargo.toml -- --check
+
+      - name: Clippy (firmware)
+        run: |
+          cargo clippy --target ${{ env.RISCV_TARGET }} --release -- -D warnings
+
+      - name: Clippy (keygen)
+        run: |
+          cargo clippy --manifest-path scripts/keygen/Cargo.toml --release -- -D warnings
+
+      - name: Clippy (verifier)
+        run: |
+          cargo clippy --manifest-path scripts/verify/Cargo.toml --release -- -D warnings
+
+      - name: Build firmware (release)
         run: |
           cargo build --target ${{ env.RISCV_TARGET }} --release
 
       - name: Check binary size
         run: |
-          # Check actual loadable content (.text + .rodata), not ELF file size
-          # ELF files have headers and alignment padding that inflate the file size
-          # readelf -SW columns: [Nr] Name Type Addr Offset Size EntSize Flags ...
-          # $7 is the Size column (not $6 which is Offset)
           TEXT_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/fortis | grep "\.text" | awk '{print strtonum("0x"$7)}')
           RODATA_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/fortis | grep "\.rodata" | awk '{print strtonum("0x"$7)}')
           CODE_SIZE=$((TEXT_SIZE + RODATA_SIZE))
           echo "Code: .text=${TEXT_SIZE} .rodata=${RODATA_SIZE} total=${CODE_SIZE} bytes"
-          # Assert code is under 64 KiB
           if [ "$CODE_SIZE" -gt 65536 ]; then
             echo "ERROR: Code too large ($CODE_SIZE bytes > 64 KiB)"
             exit 1
           fi
           echo "✓ Binary size OK (${CODE_SIZE} bytes < 64 KiB)"
 
-      - name: Verify measurements (host-side)
+      - name: Host-side verification
         timeout-minutes: 2
         run: |
-          # Build the verifier (host-side)
           cargo build --manifest-path scripts/verify/Cargo.toml --release
-          # Run verifier: reads ELF, computes expected PCR, runs QEMU, compares
           cargo run --manifest-path scripts/verify/Cargo.toml --release \
             -- target/${{ env.RISCV_TARGET }}/release/fortis
-
-      - name: Clippy (target)
-        run: |
-          cargo clippy --target ${{ env.RISCV_TARGET }} --release -- -D warnings
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt -- --check
