@@ -10,58 +10,68 @@ env:
   RISCV_TARGET: riscv64gc-unknown-none-elf
 
 jobs:
-  build:
-    name: Build & Verify (QEMU)
+  # ── Fast: format check (stable Rust, no cross-compilation) ─────────
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ env.RISCV_TARGET }}
-          components: rust-src, clippy, rustfmt
-
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-misc
-
-      - name: Cache cargo registry + build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            scripts/keygen/target
-            scripts/verify/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
+          components: rustfmt
       - name: Check formatting (all crates)
         run: |
           cargo fmt -- --check
           cargo fmt --manifest-path scripts/keygen/Cargo.toml -- --check
           cargo fmt --manifest-path scripts/verify/Cargo.toml -- --check
 
+  # ── Lint: clippy for all crates (parallel with build) ──────────────
+  lint:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ env.RISCV_TARGET }}
+          components: clippy, rust-src
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: clippy-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: clippy-${{ runner.os }}-
       - name: Clippy (firmware)
-        run: |
-          cargo clippy --target ${{ env.RISCV_TARGET }} --release -- -D warnings
-
+        run: cargo clippy --target ${{ env.RISCV_TARGET }} --release -- -D warnings
       - name: Clippy (keygen)
-        run: |
-          cargo clippy --manifest-path scripts/keygen/Cargo.toml --release -- -D warnings
-
+        run: cargo clippy --manifest-path scripts/keygen/Cargo.toml --release -- -D warnings
       - name: Clippy (verifier)
-        run: |
-          cargo clippy --manifest-path scripts/verify/Cargo.toml --release -- -D warnings
+        run: cargo clippy --manifest-path scripts/verify/Cargo.toml --release -- -D warnings
 
+  # ── Build: firmware + size check (parallel with lint/fmt) ──────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ env.RISCV_TARGET }}
+          components: rust-src
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: build-${{ runner.os }}-
       - name: Build firmware (release)
-        run: |
-          cargo build --target ${{ env.RISCV_TARGET }} --release
-
+        run: cargo build --target ${{ env.RISCV_TARGET }} --release
       - name: Check binary size
         run: |
           TEXT_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/fortis | grep "\.text" | awk '{print strtonum("0x"$7)}')
@@ -73,7 +83,46 @@ jobs:
             exit 1
           fi
           echo "✓ Binary size OK (${CODE_SIZE} bytes < 64 KiB)"
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: target/${{ env.RISCV_TARGET }}/release/fortis
+          retention-days: 1
 
+  # ── Verify: QEMU verification (depends on build) ──────────────────
+  verify:
+    name: Verify (QEMU)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-misc
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: firmware/
+      - name: Prepare firmware binary
+        run: |
+          mkdir -p target/${{ env.RISCV_TARGET }}/release
+          cp firmware/fortis target/${{ env.RISCV_TARGET }}/release/fortis
+          chmod +x target/${{ env.RISCV_TARGET }}/release/fortis
+      - name: Cache cargo (verifier deps)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            scripts/verify/target
+          key: verify-${{ runner.os }}-${{ hashFiles('scripts/verify/Cargo.lock') }}
+          restore-keys: verify-${{ runner.os }}-
       - name: Host-side verification
         timeout-minutes: 2
         run: |
