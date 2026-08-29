@@ -37,8 +37,8 @@ jobs:
           # ELF files have headers and alignment padding that inflate the file size
           # readelf -SW columns: [Nr] Name Type Addr Offset Size EntSize Flags ...
           # $7 is the Size column (not $6 which is Offset)
-          TEXT_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/riscv-trust | grep "\.text" | awk '{print strtonum("0x"$7)}')
-          RODATA_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/riscv-trust | grep "\.rodata" | awk '{print strtonum("0x"$7)}')
+          TEXT_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/fortis | grep "\.text" | awk '{print strtonum("0x"$7)}')
+          RODATA_SIZE=$(readelf -SW target/${{ env.RISCV_TARGET }}/release/fortis | grep "\.rodata" | awk '{print strtonum("0x"$7)}')
           CODE_SIZE=$((TEXT_SIZE + RODATA_SIZE))
           echo "Code: .text=${TEXT_SIZE} .rodata=${RODATA_SIZE} total=${CODE_SIZE} bytes"
           # Assert code is under 64 KiB
@@ -57,7 +57,7 @@ jobs:
             -machine virt \
             -bios default \
             -nographic \
-            -kernel target/${{ env.RISCV_TARGET }}/release/riscv-trust \
+            -kernel target/${{ env.RISCV_TARGET }}/release/fortis \
             2>&1 | tee qemu-output.txt
 
           # Verify key output strings.
