@@ -1,8 +1,7 @@
-# riscv-trust
+# Fortis
 
-**Bare-metal RISC-V chain-of-trust demo** — real SHA-256, real ML-KEM-768
-post-quantum key decapsulation, MMIO UART, PCR measurement registers,
-on QEMU virt.
+**Measured boot, zero trust.** — Bare-metal RISC-V chain-of-trust with real
+SHA-256 and ML-KEM-768 post-quantum crypto on QEMU virt.
 
 ## What it demonstrates
 

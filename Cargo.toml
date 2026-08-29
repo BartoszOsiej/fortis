@@ -1,10 +1,10 @@
 [package]
-name = "riscv-trust"
+name = "fortis"
 version = "0.2.0"
 edition = "2021"
-description = "Bare-metal RISC-V chain-of-trust demo: MMIO UART, measured boot, post-quantum signature verification on QEMU virt"
+description = "Bare-metal RISC-V chain-of-trust: real SHA-256 + ML-KEM-768 post-quantum measured boot on QEMU virt"
 license = "MIT"
-repository = "https://github.com/BartoszOsiej/riscv-trust"
+repository = "https://github.com/BartoszOsiej/fortis"
 
 [dependencies]
 # Real SHA-256 — no_std, no heap
