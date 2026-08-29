@@ -68,6 +68,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fortis"
+version = "0.2.0"
+dependencies = [
+ "digest",
+ "ml-kem",
+ "sha2",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -141,15 +150,6 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
-
-[[package]]
-name = "riscv-trust"
-version = "0.2.0"
-dependencies = [
- "digest",
- "ml-kem",
- "sha2",
-]
 
 [[package]]
 name = "sha2"
