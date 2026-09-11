@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FORTIS — Post-Quantum Measured Boot (RISC-V) | Bartosz Osiej</title>
+<meta name="description" content="Bare-metal RISC-V chain-of-trust: real SHA-256 (FIPS 180-4) + ML-KEM-768 (FIPS 203) post-quantum measured boot on QEMU virt. Verified boot, zero trust.">
+<link rel="stylesheet" href="https://bartoszosiej.github.io/css/aegis.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23F15A24'>&#128274;</text></svg>">
+<style>
+  .page{max-width:880px;margin:0 auto;padding:56px 20px 0}
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 8px}
+  .b{font:700 10px "Space Mono",monospace;letter-spacing:.12em;border:1px solid var(--line);color:var(--slate2);padding:5px 9px}
+  .b.hot{color:var(--rust);border-color:rgba(241,90,36,.4)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}
+  .card{padding:16px;font:400 12px "JetBrains Mono",monospace;line-height:1.65}
+  .card b{color:var(--rust);display:block;margin-bottom:6px;font-size:12px}
+  .code{background:#0a0a0f;border:1px solid var(--line);padding:16px;font:400 12px "JetBrains Mono",monospace;color:var(--bone);overflow-x:auto;white-space:pre;line-height:1.7}
+  .code .c{color:var(--slate)} .code .k{color:var(--rust)}
+  .meta{font:400 12px "JetBrains Mono",monospace;color:var(--slate2);line-height:1.9;margin:8px 0 0}
+  h1{font:700 clamp(38px,7vw,72px)/.95 "Space Mono",monospace;letter-spacing:-.02em;margin:10px 0 4px}
+  .sub{font:400 13px "JetBrains Mono",monospace;color:var(--slate2);max-width:640px}
+  section{border-top:1px solid var(--line2);padding-top:22px;margin-top:26px}
+  h2{font:700 13px "Space Mono",monospace;letter-spacing:.14em;color:var(--rust);text-transform:uppercase}
+  .hub{width:100%;box-sizing:border-box}
+  table{width:100%;border-collapse:collapse;font:400 12px "JetBrains Mono",monospace}
+  td{padding:9px 10px;border-bottom:1px solid var(--line2);color:var(--slate2)}
+  td:first-child{color:var(--bone);font-weight:700;white-space:nowrap}
+</style>
+</head>
+<body data-page="fortis">
+<div class="page">
+  <p class="eyebrow"><span class="pin">//</span> POST_QUANTUM · RISC_V · MEASURED_BOOT</p>
+  <h1>FORTIS<span class="blink"></span></h1>
+  <p class="sub"><b style="color:var(--bone)">Measured boot. Zero trust.</b> A bare-metal RISC-V chain-of-trust with real SHA-256 and ML-KEM-768 post-quantum crypto — firmware measures itself, an external verifier confirms, on QEMU virt.</p>
+
+  <div class="badges">
+    <span class="b">RUST</span>
+    <span class="b hot">RISC-V</span>
+    <span class="b hot">ML-KEM-768 (FIPS 203)</span>
+    <span class="b">SHA-256 (FIPS 180-4)</span>
+    <span class="b">&lt;64 KiB CODE</span>
+    <span class="b">QEMU-VIRT</span>
+  </div>
+
+  <section>
+    <h2>CHAIN_OF_TRUST</h2>
+    <table>
+      <tr><td>SHA-256</td><td><code>sha2</code> crate — real FIPS 180-4 hashing, not a placeholder</td></tr>
+      <tr><td>ML-KEM-768</td><td><code>ml-kem</code> crate — FIPS 203 post-quantum key encapsulation</td></tr>
+      <tr><td>MMIO UART</td><td>ns16550a driver on QEMU virt <code>0x10000000</code></td></tr>
+      <tr><td>Measured boot</td><td>SHA-256 PCR registers over <b style="color:var(--bone)">real binary sections</b></td></tr>
+      <tr><td>3-stage boot</td><td>firmware → measurement → attestation report</td></tr>
+      <tr><td>External root of trust</td><td>verifier reads ELF, computes expected PCR, compares — trusts nothing self-reported</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>HOW IT WORKS</h2>
+    <div class="code"><span class="k">1.</span> <span class="c"># firmware measures its own .text/.rodata via linker-provided addresses</span>
+<span class="k">2.</span> <span class="c"># verifier (scripts/verify) computes expected PCR from the actual ELF bytes</span>
+<span class="k">3.</span> <span class="c"># runs firmware in QEMU, parses printed PCRs, compares against expected</span>
+<span class="k">$</span> cargo build --release --target riscv64gc-unknown-none-elf
+<span class="k">$</span> python3 scripts/verify/run --elf target/.../fortis.elf</div>
+  </section>
+
+  <section>
+    <h2>ROUTES</h2>
+    <div class="hub brutal glow-rust"><span class="tick">▮</span><span style="font:700 13px 'Space Mono',monospace">SOURCE</span><a href="https://github.com/BartoszOsiej/fortis" style="color:var(--slate2);text-decoration:none;font:12px 'JetBrains Mono'">github.com/BartoszOsiej/fortis</a><span class="go">→</span></div>
+    <div class="hub brutal glow-rust"><span class="tick">▮</span><span style="font:700 13px 'Space Mono',monospace">LIMITS</span><a href="https://github.com/BartoszOsiej/fortis/blob/master/README.md" style="color:var(--slate2);text-decoration:none;font:12px 'JetBrains Mono'">documented threat model in README</a><span class="go">→</span></div>
+    <div class="hub brutal glow-rust"><span class="tick">▮</span><span style="font:700 13px 'Space Mono',monospace">CI</span><a href="https://github.com/BartoszOsiej/fortis/actions" style="color:var(--slate2);text-decoration:none;font:12px 'JetBrains Mono'">Rust build + verify pipeline</a><span class="go">→</span></div>
+  </section>
+</div>
+<script defer src="https://bartoszosiej.github.io/js/aegis-chrome.js"></script>
+</body>
+</html>
