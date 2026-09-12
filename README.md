@@ -214,3 +214,8 @@ cd scripts/keygen && cargo run --release
 ## License
 
 MIT
+
+## Deep Dives
+
+Extended dossiers (architecture, verification, benchmarks, error codex) ship in this repo:
+- [SECURITY.md](SECURITY.md)
